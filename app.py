@@ -2,32 +2,161 @@ import streamlit as st
 import pickle
 import numpy as np
 import os
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
 
-# Load the scaler and model with error handling
+# For cloud deployment - handle model loading differently
 @st.cache_resource
 def load_models():
     try:
-        scaler_path = r"C:\Users\ragul\OneDrive\Desktop\CareerPath_Recommender-main\Jupiter file & dataset\scaler.pkl"
-        model_path = r"C:\Users\ragul\OneDrive\Desktop\CareerPath_Recommender-main\Jupiter file & dataset\model.pkl"
+        # Try to load from cloud deployment paths first
+        model_paths = [
+            # Local development paths
+            r"C:\Users\ragul\OneDrive\Desktop\CareerPath_Recommender-main\Jupiter file & dataset\scaler.pkl",
+            r"C:\Users\ragul\OneDrive\Desktop\CareerPath_Recommender-main\Jupiter file & dataset\model.pkl",
+            # Cloud deployment paths
+            "scaler.pkl",
+            "model.pkl",
+            "models/scaler.pkl", 
+            "models/model.pkl"
+        ]
         
-        if not os.path.exists(scaler_path) or not os.path.exists(model_path):
-            st.error("Model files not found. Please check the file paths.")
+        scaler = None
+        model = None
+        
+        # Try different path combinations
+        for scaler_path in [p for p in model_paths if 'scaler' in p]:
+            if os.path.exists(scaler_path):
+                try:
+                    scaler = pickle.load(open(scaler_path, 'rb'))
+                    break
+                except:
+                    continue
+        
+        for model_path in [p for p in model_paths if 'model' in p and 'scaler' not in p]:
+            if os.path.exists(model_path):
+                try:
+                    model = pickle.load(open(model_path, 'rb'))
+                    break
+                except:
+                    continue
+        
+        if scaler is None or model is None:
+            st.warning("⚠️ Pre-trained models not found. Using fallback recommendation system.")
             return None, None
             
-        scaler = pickle.load(open(scaler_path, 'rb'))
-        model = pickle.load(open(model_path, 'rb'))
         return scaler, model
     except Exception as e:
         st.error(f"Error loading models: {str(e)}")
         return None, None
 
-# Updated class names without 'Unknown' and more relevant careers
+# Fallback recommendation system when models are not available
+class FallbackRecommendationSystem:
+    def __init__(self):
+        self.career_paths = {
+            'Medical Doctor': {
+                'subjects': ['biology', 'chemistry', 'physics'],
+                'weights': {'biology': 0.4, 'chemistry': 0.3, 'physics': 0.3},
+                'min_avg': 70,
+                'description': 'MBBS, BDS, Veterinary Science, Pharmacy'
+            },
+            'Software Engineer': {
+                'subjects': ['maths', 'bio_cs', 'physics'],
+                'weights': {'maths': 0.4, 'bio_cs': 0.4, 'physics': 0.2},
+                'min_avg': 65,
+                'description': 'Programming, Software Development, Web Development'
+            },
+            'Data Scientist': {
+                'subjects': ['maths', 'bio_cs', 'english'],
+                'weights': {'maths': 0.5, 'bio_cs': 0.3, 'english': 0.2},
+                'min_avg': 70,
+                'description': 'Data Analysis, Machine Learning, AI, Statistics'
+            },
+            'Engineering': {
+                'subjects': ['maths', 'physics', 'chemistry'],
+                'weights': {'maths': 0.4, 'physics': 0.3, 'chemistry': 0.3},
+                'min_avg': 65,
+                'description': 'Civil, Mechanical, Electrical, Electronics Engineering'
+            },
+            'Teacher': {
+                'subjects': ['english', 'tamil'],
+                'weights': {'english': 0.5, 'tamil': 0.5},
+                'min_avg': 60,
+                'description': 'Education, Academic Instruction, Curriculum Development'
+            },
+            'Business Analyst': {
+                'subjects': ['maths', 'english'],
+                'weights': {'maths': 0.6, 'english': 0.4},
+                'min_avg': 65,
+                'description': 'Business Analysis, Consulting, Management'
+            },
+            'Scientist': {
+                'subjects': ['maths', 'physics', 'chemistry', 'biology'],
+                'weights': {'maths': 0.25, 'physics': 0.25, 'chemistry': 0.25, 'biology': 0.25},
+                'min_avg': 70,
+                'description': 'Research, Laboratory Work, Scientific Analysis'
+            },
+            'Government Officer': {
+                'subjects': ['english', 'tamil'],
+                'weights': {'english': 0.6, 'tamil': 0.4},
+                'min_avg': 55,
+                'description': 'Civil Services, Public Administration, Policy Making'
+            }
+        }
+    
+    def get_recommendations(self, scores, extracurricular, study_hours, part_time_job):
+        recommendations = []
+        
+        subject_mapping = {
+            'tamil': scores['tamil'],
+            'english': scores['english'],
+            'maths': scores['maths'],
+            'bio_cs': scores['bio_cs'],
+            'physics': scores['physics'],
+            'chemistry': scores['chemistry'],
+            'biology': scores['bio_cs']  # Assume bio_cs represents biology for medical careers
+        }
+        
+        for career, details in self.career_paths.items():
+            score = 0
+            total_weight = 0
+            
+            for subject, weight in details['weights'].items():
+                if subject in subject_mapping:
+                    score += subject_mapping[subject] * weight
+                    total_weight += weight
+            
+            if total_weight > 0:
+                weighted_score = score / total_weight
+                
+                # Apply bonuses
+                if extracurricular:
+                    weighted_score += 2
+                if study_hours > 15:
+                    weighted_score += 3
+                elif study_hours > 10:
+                    weighted_score += 1.5
+                
+                # Apply penalty for part-time job
+                if part_time_job:
+                    weighted_score -= 1
+                
+                # Only include if meets minimum requirements
+                if weighted_score >= details['min_avg']:
+                    probability = min(weighted_score / 100, 0.95)
+                    recommendations.append((career, probability, details['description']))
+        
+        # Sort by probability
+        recommendations.sort(key=lambda x: x[1], reverse=True)
+        return recommendations[:5]
+
+# Updated class names without 'Unknown'
 class_names = ['Lawyer', 'Doctor', 'Government Officer', 'Artist', 'Software Engineer', 
                'Teacher', 'Business Owner', 'Scientist', 'Banker', 'Writer', 
                'Accountant', 'Designer', 'Construction Engineer', 'Game Developer', 
                'Stock Investor', 'Real Estate Developer', 'Data Scientist', 'Pharmacist']
 
-# Career descriptions for better understanding
+# Career descriptions
 career_descriptions = {
     'Lawyer': 'Legal practice, litigation, corporate law, human rights law',
     'Doctor': 'Medicine, surgery, specialized medical practice, healthcare',
@@ -49,55 +178,53 @@ career_descriptions = {
     'Pharmacist': 'Pharmaceutical sciences, drug dispensing, healthcare'
 }
 
-# Enhanced recommendation function with better logic
-def Recommendations(gender, part_time_job, extracurricular_activities,
-                    weekly_self_study_hours, tamil_score, english_score, math_score,
-                    bio_cs_score, physics_score, chemistry_score, total_score, average_score):
+# Enhanced recommendation function
+def get_recommendations(gender, part_time_job, extracurricular_activities,
+                       weekly_self_study_hours, scores, total_score, average_score):
     
     scaler, model = load_models()
-    if scaler is None or model is None:
-        return []
     
-    # Encode categorical variables
-    gender_encoded = 1 if gender.lower() == 'female' else 0
-    part_time_job_encoded = 1 if part_time_job else 0
-    extracurricular_activities_encoded = 1 if extracurricular_activities else 0
+    if scaler is not None and model is not None:
+        # Use the original ML model
+        try:
+            # Encode categorical variables
+            gender_encoded = 1 if gender.lower() == 'female' else 0
+            part_time_job_encoded = 1 if part_time_job else 0
+            extracurricular_activities_encoded = 1 if extracurricular_activities else 0
 
-    # Create feature array matching your original model's expected input format
-    # Assuming your model expects: gender, part_time_job, extracurricular, study_hours, 
-    # math, history, physics, chemistry, biology, english, geography, total, average
-    # We'll map our 6 subjects to the 7 expected subjects
-    feature_array = np.array([[gender_encoded, part_time_job_encoded, extracurricular_activities_encoded,
-                               weekly_self_study_hours, math_score, tamil_score, physics_score,
-                               chemistry_score, bio_cs_score, english_score, 
-                               (tamil_score + english_score) / 2,  # geography approximation
-                               total_score, average_score]])
+            # Create feature array matching the model's expected input
+            feature_array = np.array([[gender_encoded, part_time_job_encoded, extracurricular_activities_encoded,
+                                     weekly_self_study_hours, scores['maths'], scores['tamil'], scores['physics'],
+                                     scores['chemistry'], scores['bio_cs'], scores['english'], 
+                                     (scores['tamil'] + scores['english']) / 2,  # geography approximation
+                                     total_score, average_score]])
 
-    try:
-        # Scale features
-        scaled_features = scaler.transform(feature_array)
+            # Scale features and predict
+            scaled_features = scaler.transform(feature_array)
+            probabilities = model.predict_proba(scaled_features)
 
-        # Predict using the model
-        probabilities = model.predict_proba(scaled_features)
-
-        # Get top five predicted classes along with their probabilities
-        top_classes_idx = np.argsort(-probabilities[0])[:5]
-        
-        # Filter out low probability predictions and create recommendations
-        recommendations = []
-        for idx in top_classes_idx:
-            prob = probabilities[0][idx]
-            if prob > 0.05:  # Only show recommendations with >5% probability
-                career_name = class_names[idx] if idx < len(class_names) else "Career Option"
-                recommendations.append((career_name, prob))
-        
-        return recommendations
+            # Get top recommendations
+            top_classes_idx = np.argsort(-probabilities[0])[:5]
+            recommendations = []
+            
+            for idx in top_classes_idx:
+                prob = probabilities[0][idx]
+                if prob > 0.05:  # Only show >5% probability
+                    career_name = class_names[idx] if idx < len(class_names) else "Career Option"
+                    description = career_descriptions.get(career_name, "Explore this career path")
+                    recommendations.append((career_name, prob, description))
+            
+            return recommendations, "AI Model"
+            
+        except Exception as e:
+            st.warning(f"ML model prediction failed: {str(e)}. Using fallback system.")
     
-    except Exception as e:
-        st.error(f"Error making predictions: {str(e)}")
-        return []
+    # Use fallback system
+    fallback_system = FallbackRecommendationSystem()
+    recommendations = fallback_system.get_recommendations(scores, extracurricular_activities, 
+                                                        weekly_self_study_hours, part_time_job)
+    return recommendations, "Rule-based System"
 
-# Streamlit UI setup
 def main():
     # Set the page layout to wide
     st.set_page_config(page_title="🎓 Career Guidance System", page_icon="🎓", layout="wide")
@@ -126,9 +253,6 @@ def main():
         margin: 1rem 0;
         border: 1px solid #e0e0e0;
     }
-    .subject-input {
-        margin-bottom: 1rem;
-    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -137,7 +261,7 @@ def main():
     st.write("""
     ### Welcome to Your Career Path Explorer! 
     This intelligent system analyzes your academic performance across 6 key subjects (Total: 600 marks) 
-    and provides AI-powered career recommendations tailored to your strengths and interests.
+    and provides personalized career recommendations tailored to your strengths and interests.
     """)
     
     # Create two columns for better layout
@@ -146,27 +270,26 @@ def main():
     with col1:
         st.header("📋 Personal Information")
         
-        # Personal details with improved defaults
-        gender = st.selectbox("👤 Gender", ["Male", "Female"], index=0, key="gender")
-        part_time_job = st.selectbox("💼 Part-Time Job", ["Yes", "No"], index=1, key="part_time_job")
-        extracurricular_activities = st.selectbox("🎭 Extracurricular Activities", ["Yes", "No"], index=0, key="extracurricular_activities")
-        weekly_self_study_hours = st.number_input("⏱️ Weekly Self-Study Hours", min_value=0, max_value=100, step=1, value=10, key="weekly_study_hours")
+        # Personal details
+        gender = st.selectbox("👤 Gender", ["Male", "Female"], index=0)
+        part_time_job = st.selectbox("💼 Part-Time Job", ["Yes", "No"], index=1)
+        extracurricular_activities = st.selectbox("🎭 Extracurricular Activities", ["Yes", "No"], index=0)
+        weekly_self_study_hours = st.number_input("⏱️ Weekly Self-Study Hours", min_value=0, max_value=100, step=1, value=10)
         
         st.header("📊 Subject Scores (Out of 100 each - Total 600 marks)")
-        st.write("*Enter your scores for each subject:*")
         
-        # Subject scores organized in two columns
+        # Subject scores in two columns
         col_sub1, col_sub2 = st.columns(2)
         
         with col_sub1:
-            tamil_score = st.number_input("🔤 Tamil", min_value=0, max_value=100, value=75, step=1, key="tamil_score")
-            english_score = st.number_input("📚 English", min_value=0, max_value=100, value=75, step=1, key="english_score")
-            math_score = st.number_input("🔢 Mathematics", min_value=0, max_value=100, value=75, step=1, key="math_score")
+            tamil_score = st.number_input("🔤 Tamil", min_value=0, max_value=100, value=75, step=1)
+            english_score = st.number_input("📚 English", min_value=0, max_value=100, value=75, step=1)
+            math_score = st.number_input("🔢 Mathematics", min_value=0, max_value=100, value=75, step=1)
         
         with col_sub2:
-            bio_cs_score = st.number_input("🧬/💻 Biology/Computer Science", min_value=0, max_value=100, value=75, step=1, key="bio_cs_score")
-            physics_score = st.number_input("⚛️ Physics", min_value=0, max_value=100, value=75, step=1, key="physics_score")
-            chemistry_score = st.number_input("⚗️ Chemistry", min_value=0, max_value=100, value=75, step=1, key="chemistry_score")
+            bio_cs_score = st.number_input("🧬/💻 Biology/Computer Science", min_value=0, max_value=100, value=75, step=1)
+            physics_score = st.number_input("⚛️ Physics", min_value=0, max_value=100, value=75, step=1)
+            chemistry_score = st.number_input("⚗️ Chemistry", min_value=0, max_value=100, value=75, step=1)
     
     with col2:
         # Real-time score calculation
@@ -183,7 +306,7 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        # Grade calculation with Indian grading system
+        # Grade calculation
         if percentage >= 90:
             grade = "A+ (Outstanding)"
             color = "#4CAF50"
@@ -208,8 +331,7 @@ def main():
         
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, {color} 0%, {color}dd 100%); 
-                    color: white; padding: 1.5rem; border-radius: 10px; text-align: center; 
-                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                    color: white; padding: 1.5rem; border-radius: 10px; text-align: center;">
         <h3>Grade: {grade}</h3>
         </div>
         """, unsafe_allow_html=True)
@@ -228,26 +350,35 @@ def main():
         st.info(f"💪 **Strongest Subject:** {strongest_subject} ({subjects[strongest_subject]}%)")
     
     # Get recommendations button
-    if st.button("🔍 Get AI-Powered Career Recommendations", type="primary"):
+    if st.button("🔍 Get Career Recommendations", type="primary"):
         if average_score < 35:
-            st.error("⚠️ Your overall performance is below passing grade. Focus on improving your scores to at least 35% average before exploring career paths.")
+            st.error("⚠️ Your overall performance is below passing grade. Focus on improving your scores to at least 35% average.")
         else:
-            with st.spinner("🤖 AI is analyzing your profile..."):
-                # Get recommendations
-                recommendations = Recommendations(gender, part_time_job == "Yes", extracurricular_activities == "Yes",
-                                                weekly_self_study_hours, tamil_score, english_score, math_score,
-                                                bio_cs_score, physics_score, chemistry_score, total_score, average_score)
+            with st.spinner("🤖 Analyzing your profile..."):
+                scores_dict = {
+                    'tamil': tamil_score,
+                    'english': english_score,
+                    'maths': math_score,
+                    'bio_cs': bio_cs_score,
+                    'physics': physics_score,
+                    'chemistry': chemistry_score
+                }
+                
+                recommendations, system_type = get_recommendations(
+                    gender, part_time_job == "Yes", extracurricular_activities == "Yes",
+                    weekly_self_study_hours, scores_dict, total_score, average_score
+                )
                 
                 if recommendations:
-                    st.success("✅ Analysis Complete! Here are your personalized recommendations:")
-                    st.markdown("---")
-                    st.header("🎯 Your AI-Powered Career Recommendations")
+                    st.success(f"✅ Analysis Complete using {system_type}!")
+                    st.header("🎯 Your Personalized Career Recommendations")
                     
-                    for i, (career, probability) in enumerate(recommendations, 1):
-                        confidence_percentage = probability * 100
+                    for i, rec in enumerate(recommendations, 1):
+                        career = rec[0]
+                        probability = rec[1]
+                        description = rec[2] if len(rec) > 2 else career_descriptions.get(career, "Explore this career path")
                         
-                        # Get career description
-                        description = career_descriptions.get(career, "Explore this exciting career path")
+                        confidence_percentage = probability * 100
                         
                         # Color coding based on confidence
                         if confidence_percentage >= 70:
@@ -272,44 +403,19 @@ def main():
                         <p style="margin-top: 1rem; font-size: 1.1rem;">
                             <strong>Career Paths:</strong> {description}
                         </p>
-                        <p style="margin-top: 0.5rem; opacity: 0.9;">
-                            <strong>AI Confidence:</strong> This career aligns well with your academic profile and interests.
-                        </p>
                         </div>
                         """, unsafe_allow_html=True)
                     
-                    # Additional guidance section
-                    st.markdown("---")
-                    st.header("💡 Next Steps & Guidance")
-                    
-                    col_guide1, col_guide2 = st.columns(2)
-                    
-                    with col_guide1:
-                        st.info("""
-                        **🎯 Immediate Actions:**
-                        1. Research your top 3 recommended careers
-                        2. Connect with professionals in these fields
-                        3. Look for internships or job shadowing opportunities
-                        4. Consider relevant skill development courses
-                        """)
-                    
-                    with col_guide2:
-                        st.success("""
-                        **🚀 Long-term Planning:**
-                        1. Choose college courses aligned with your career goals
-                        2. Build a portfolio of relevant projects
-                        3. Join professional associations in your field
-                        4. Stay updated with industry trends
-                        """)
-                    
-                    # Subject improvement suggestions
-                    if average_score < 75:
-                        weak_subjects = [subject for subject, score in subjects.items() if score < 60]
-                        if weak_subjects:
-                            st.warning(f"📚 **Improvement Tip:** Focus on strengthening {', '.join(weak_subjects)} to unlock more career opportunities.")
-                
+                    # Guidance section
+                    st.info("""
+                    💡 **Next Steps:**
+                    1. Research your top 3 recommended careers in detail
+                    2. Connect with professionals in these fields
+                    3. Look for internships or job shadowing opportunities
+                    4. Focus on improving scores in relevant subjects
+                    """)
                 else:
-                    st.error("Unable to generate recommendations. Please check if the model files are properly loaded.")
+                    st.error("Unable to generate recommendations. Please try again.")
 
 if __name__ == '__main__':
     main()
